@@ -25,7 +25,7 @@ SearchPaths = NamedTuple(
     'SearchPaths',
     [('python_path', Tuple[str, ...]),  # where user code is found
      ('mypy_path', Tuple[str, ...]),  # from $MYPYPATH or config variable
-     ('package_path', Tuple[str, ...]),  # from get_site_packages_dirs()
+     ('package_path', Tuple[str, ...]),  # from get_search_dirs()
      ('typeshed_path', Tuple[str, ...]),  # paths in typeshed
      ])
 
@@ -583,7 +583,7 @@ def default_lib_path(data_dir: str,
 
 
 @functools.lru_cache(maxsize=None)
-def get_site_packages_dirs(python_executable: Optional[str]) -> Tuple[List[str], List[str]]:
+def get_search_dirs(python_executable: Optional[str]) -> Tuple[List[str], List[str], List[str]]:
     """Find package directories for given python.
 
     This runs a subprocess call, which generates a list of the egg directories, and the site
@@ -592,17 +592,17 @@ def get_site_packages_dirs(python_executable: Optional[str]) -> Tuple[List[str],
     """
 
     if python_executable is None:
-        return [], []
+        return [], [], []
     elif python_executable == sys.executable:
         # Use running Python's package dirs
-        site_packages = sitepkgs.getsitepackages()
+        site_packages, sys_path = sitepkgs.getsearchdirs()
     else:
         # Use subprocess to get the package directory of given Python
         # executable
-        site_packages = ast.literal_eval(
+        site_packages, sys_path = ast.literal_eval(
             subprocess.check_output([python_executable, sitepkgs.__file__],
             stderr=subprocess.PIPE).decode())
-    return expand_site_packages(site_packages)
+    return expand_site_packages(site_packages) + (sys_path,)
 
 
 def expand_site_packages(site_packages: List[str]) -> Tuple[List[str], List[str]]:
@@ -735,8 +735,8 @@ def compute_search_paths(sources: List[BuildSource],
     if options.python_version[0] == 2:
         mypypath = add_py2_mypypath_entries(mypypath)
 
-    egg_dirs, site_packages = get_site_packages_dirs(options.python_executable)
-    for site_dir in site_packages:
+    egg_dirs, site_packages, sys_path = get_search_dirs(options.python_executable)
+    for site_dir in site_packages + sys_path:
         assert site_dir not in lib_path
         if (site_dir in mypypath or
                 any(p.startswith(site_dir + os.path.sep) for p in mypypath) or
@@ -745,15 +745,10 @@ def compute_search_paths(sources: List[BuildSource],
             print("See https://mypy.readthedocs.io/en/stable/running_mypy.html"
                   "#how-mypy-handles-imports for more info", file=sys.stderr)
             sys.exit(1)
-        elif site_dir in python_path:
-            print("{} is in the PYTHONPATH. Please change directory"
-                  " so it is not.".format(site_dir),
-                  file=sys.stderr)
-            sys.exit(1)
 
     return SearchPaths(python_path=tuple(reversed(python_path)),
                        mypy_path=tuple(mypypath),
-                       package_path=tuple(egg_dirs + site_packages),
+                       package_path=tuple(egg_dirs + site_packages + sys_path),
                        typeshed_path=tuple(lib_path))
 
 

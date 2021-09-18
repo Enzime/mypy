@@ -7,18 +7,40 @@ library found in Python 2. This file is run each mypy run, so it should be kept 
 possible.
 """
 
-if __name__ == '__main__':
-    import sys
-    sys.path = sys.path[1:]  # we don't want to pick up mypy.types
-
+import sys
+import os
 import site
+import sysconfig
+
+if __name__ == '__main__':
+    sys.path = sys.path[1:]  # we don't want to pick up mypy.types
 
 MYPY = False
 if MYPY:
-    from typing import List
+    from typing import List, Tuple
 
 
-def getsitepackages():
+def getsearchdirs():
+    # type: () -> Tuple[List[str], List[str]]
+    site_packages = _getsitepackages()
+
+    # Do not include things from the standard library
+    # because those should come from typeshed.
+    stdlib_zip = os.path.join(
+        sys.base_exec_prefix,
+        getattr(sys, "platlibdir", "lib"),
+        "python{}{}.zip".format(sys.version_info.major, sys.version_info.minor)
+    )
+    stdlib = sysconfig.get_path("stdlib")
+    stdlib_ext = os.path.join(stdlib, "lib-dynload")
+    cwd = os.path.abspath(os.getcwd())
+    excludes = set(site_packages + [cwd, stdlib_zip, stdlib, stdlib_ext])
+
+    abs_sys_path = (os.path.abspath(p) for p in sys.path)
+    return (site_packages, [p for p in abs_sys_path if p not in excludes])
+
+
+def _getsitepackages():
     # type: () -> List[str]
     if hasattr(site, 'getusersitepackages') and hasattr(site, 'getsitepackages'):
         user_dir = site.getusersitepackages()
@@ -29,4 +51,4 @@ def getsitepackages():
 
 
 if __name__ == '__main__':
-    print(repr(getsitepackages()))
+    print(repr(getsearchdirs()))
